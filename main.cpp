@@ -7,10 +7,6 @@ static const int screenHeight = 700;
 static const int mapWidth = 16;
 static const int mapHeight = 16;
 
-static const int tileSize = 36;
-static const int mapOffsetX = 40;
-static const int mapOffsetY = 40;
-
 static const float moveSpeed = 3.0f;
 static const float playerRadius = 0.18f;
 
@@ -20,9 +16,17 @@ static const float dirLineLength = 0.8f;
 static const float fov = 60.0f * (PI / 180.0f); // converting to rad
 static const int numRays = 160;
 
-
 static const float maxRayDist = 24.0f;
 static const float rayStep = 0.02f;
+
+static const float projectPlaneDist = (screenWidth / 2.0f) / tanf(fov/ 2.0f);
+static const int viewH = screenHeight;
+
+static const int miniTile = 12;
+static const int miniPad  = 12;
+static const int miniW = mapWidth * miniTile;
+static const int miniH = mapHeight * miniTile;
+
 
 struct RayHit {
     float dist;
@@ -103,12 +107,14 @@ static RayHit castRay(float px, float py, float a){
     return RayHit{maxRayDist, px + dx * maxRayDist, py + dy * maxRayDist, 0};
 }
 
-static Vector2 tileToScreen(float tx, float ty){
+
+static Vector2 tileToMini(float tx, float ty) {
     return Vector2{
-        (float)mapOffsetX + tx * tileSize,
-        (float)mapOffsetY + ty * tileSize
+        (float)miniPad + tx * miniTile,
+        (float)miniPad + ty * miniTile
     };
 }
+
 
 int main(){
     InitWindow(screenWidth, screenHeight, "Maze Explorer");
@@ -175,65 +181,84 @@ int main(){
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
-        for(int y= 0; y < mapHeight; y++){
-            for(int x = 0; x < mapWidth; x++){
-                Rectangle r = {
-                    (float)mapOffsetX + x * tileSize,
-                    (float)mapOffsetY + y * tileSize,
-                    (float)tileSize,
-                    (float)tileSize
-                };
+        int viewTop = 0;
+        int horizon = viewTop + viewH / 2;
 
-                if(mapGrid[y][x] == 1){
-                    DrawRectangleRec(r, DARKGRAY);
-                } 
-                else {
-                    DrawRectangleRec(r, Color{ 230, 230, 230, 255 });
-                }
+        Color roofColour = Color{90, 90, 120, 255};
+        Color floorColour   = Color{60, 60, 60, 255};
 
-                DrawRectangleLines((int)r.x, (int)r.y, (int)r.width, (int)r.height, GRAY);
-
-            }
-        }
-
-        Vector2 playerScreenPos = tileToScreen(px, py);
-        DrawCircleV(playerScreenPos, playerRadius * tileSize, GREEN);
-
-        float ex = px + cosf(a) * dirLineLength;
-        float ey = py + sinf(a) * dirLineLength;
-
-        Vector2 endPos = tileToScreen(ex, ey);
-        DrawLineV(playerScreenPos, endPos, DARKGREEN);
-
-        DrawText(TextFormat("angle=%.2f rad (%.0f deg)", a, a * 180.0f / PI), 40, screenHeight - 70, 18, BLACK);
-
+        DrawRectangle(0, viewTop, screenWidth, viewH/2, roofColour); // roof
+        DrawRectangle(0, horizon, screenWidth, viewH/2, floorColour); // floor
 
         float startingAngle = a - fov * 0.5f;
 
         for(int i = 0; i < numRays; i++){
-            float t = (float)i / (float)(numRays-1);
+            float t = (float)i / (float)(numRays -1);
             float rayAngle = startingAngle + t * fov;
 
             RayHit hit = castRay(px, py, rayAngle);
-            Vector2 endOfRay = tileToScreen(hit.hitX, hit.hitY);
 
-            DrawLineV(playerScreenPos, endOfRay, Color{30, 80, 200, 90});
+            float correctedFisheyeDist = hit.dist * cosf(rayAngle - a);
+            if(correctedFisheyeDist < 0.0001f){
+                correctedFisheyeDist = 0.0001f;
+            }
+
+            float wallHeight = (1.0f/ correctedFisheyeDist) * projectPlaneDist;
+
+            int sliceX = (int)(t * screenWidth);
+            int sliceW = screenWidth/ numRays + 1;
+            int sliceY = horizon - (int)(wallHeight/2);
+            int sliceH = (int)wallHeight;
+
+            
+
+            float shade = 1.0f - correctedFisheyeDist / maxRayDist;
+            if(shade < 0.0f){
+                shade = 0.0f;
+            }
+
+            unsigned char c = (unsigned char)(80 + shade * 175);
+            Color wallColour = Color{c, c, c, 255};
+
+            if(sliceY < 0) {sliceH += sliceY; sliceY = 0;}
+            if(sliceY + sliceH > screenHeight) {sliceH = screenHeight - sliceY;}
+            if(sliceH > 0) {DrawRectangle(sliceX, sliceY, sliceW, sliceH, wallColour);}
         }
 
-        RayHit centerHit = castRay(px, py, a);
-        Vector2 centerEnd = tileToScreen(centerHit.hitX, centerHit.hitY);
-        
-        DrawLineV(playerScreenPos, centerEnd, BLUE);
-        DrawCircleV(centerEnd, 4.0f, BLUE);
+        DrawRectangle(miniPad - 6, miniPad - 6, miniW + 12, miniH + 12, Color{0,0,0,120});
+
+        for(int y = 0; y < mapHeight; y++){
+            for(int x = 0; x < mapWidth; x++){
+
+                Vector2 p = tileToMini((float)x, (float)y);
+
+                Color tileCol = (mapGrid[y][x] == 1)? Color{70,70,70,200} : Color{200,200,200,140};
+
+                DrawRectangle((int)p.x, (int)p.y, miniTile, miniTile, tileCol);
+                DrawRectangleLines((int)p.x, (int)p.y, miniTile, miniTile, Color{0,0,0,50});
+            }
+        }
 
 
-        int tx = (int)floorf(px);
-        int ty = (int)floorf(py);
+        Vector2 pMini = tileToMini(px, py);
+        DrawCircleV(pMini, playerRadius * miniTile, GREEN);
 
-        DrawText(TextFormat("Player (tile units): x=%.2f y=%.2f | tile=(%d,%d)",
-                            px, py, tx, ty), 40, screenHeight - 40, 18, BLACK);
+        Vector2 dMini = tileToMini(px + cosf(a)*dirLineLength, py + sinf(a)*dirLineLength);
+        DrawLineV(pMini, dMini, DARKGREEN);
 
-        DrawText("Use WASD to move the player", 40, 10, 18, BLACK);
+
+        DrawText(TextFormat("angle=%.2f rad (%.0f deg)", a, a * 180.0f / PI), 40, screenHeight - 70, 18, BLACK);
+
+
+        for(int i = 0; i < numRays; i++){
+            float t = (float)i / (float)(numRays - 1);
+            float rayAngle = startingAngle + t * fov;
+
+            RayHit hit = castRay(px, py, rayAngle);
+            Vector2 rEnd = tileToMini(hit.hitX, hit.hitY);
+
+            DrawLineV(pMini, rEnd, Color{30,80,200,90});
+        }
         EndDrawing();
     }
 
