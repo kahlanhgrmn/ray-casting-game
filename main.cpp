@@ -14,6 +14,20 @@ static const int mapOffsetY = 40;
 static const float moveSpeed = 3.0f;
 static const float playerRadius = 0.18f;
 
+static const float rotationSpeed = 2.2f;
+static const float dirLineLength = 0.8f;
+
+
+static const float maxRayDist = 24.0f;
+static const float rayStep = 0.02f;
+
+struct RayHit {
+    float dist;
+    float hitX;
+    float hitY;
+    int cell;  // what is being hit (1 = wall, 0 = nothing)
+};
+
 static int mapGrid[mapHeight][ mapWidth] = {
     {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
     {1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1},
@@ -33,7 +47,7 @@ static int mapGrid[mapHeight][ mapWidth] = {
     {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
 };
 
-static bool inBoundry(int mx, int my){
+static bool inBoundary(int mx, int my){
     return mx >= 0 && mx < mapWidth && my >= 0 && my < mapHeight;
 }
 
@@ -41,7 +55,7 @@ static int cellPos(float x, float y){
     int mx = (int)floorf(x);
     int my = (int)floorf(y);
 
-    if(!inBoundry(mx, my)){
+    if(!inBoundary(mx, my)){
         return 1;
     }
 
@@ -49,13 +63,13 @@ static int cellPos(float x, float y){
 }
 
 static bool collides(float x, float y){
-    float corners = playerRadius;
+    float r = playerRadius;
 
     float pts[4][2] = {
-        {x + corners, y},
-        {x - corners, y},
-        {x, y + corners},
-        {x, y - corners},
+        {x + r, y},
+        {x - r, y},
+        {x, y + r},
+        {x, y - r},
     };
 
     for(int i = 0; i < 4; i++){
@@ -65,6 +79,25 @@ static bool collides(float x, float y){
         
     }
     return false;
+}
+
+static RayHit castRay(float px, float py, float a){
+    float dx = cosf(a);
+    float dy = sinf(a);
+    float t = 0.0f;
+
+    while(t < maxRayDist){
+        float x = px + dx * t;
+        float y = py + dy *t;
+
+        int cell = cellPos(x, y);
+
+        if(cell != 0){
+            return RayHit{t, x, y, cell};
+        }
+        t += rayStep;
+    }
+    return RayHit{maxRayDist, px + dx * maxRayDist, py + dy * maxRayDist, 0};
 }
 
 static Vector2 tileToScreen(float tx, float ty){
@@ -81,35 +114,52 @@ int main(){
 
     float px = 1.5f;
     float py = 1.5f;
+    float a  = 0.0f; // player angle
 
     while(!WindowShouldClose()){
         float dt = GetFrameTime();
 
-        float dx = 0.0f;
-        float dy = 0.0f;
+        if(IsKeyDown(KEY_LEFT)){
+            a -= rotationSpeed * dt;
+        }
+        if(IsKeyDown(KEY_RIGHT)){
+            a += rotationSpeed * dt;
+        }
+
+        if(a < -PI){
+            a += 2*PI;
+        }
+        if(a >  PI){
+            a -= 2*PI;
+        }
+
+        float forward = 0.0f;
+        float strafe  = 0.0f;
 
         if(IsKeyDown(KEY_W)){
-            dy -= 1.0f;
+            forward += 1.0f;
         }
         if(IsKeyDown(KEY_S)){
-            dy += 1.0f;
-        }
-        if(IsKeyDown(KEY_A)){
-            dx -= 1.0f;
+            forward -= 1.0f;
         }
         if(IsKeyDown(KEY_D)){
-            dx += 1.0f;
+            strafe  += 1.0f;
+        }
+        if(IsKeyDown(KEY_A)){
+            strafe  -= 1.0f;
         }
 
-        float length = sqrtf(dx * dx + dy * dy);
+        float fx = cosf(a);
+        float fy = sinf(a);
 
-        if(length > 0.0001f){
-            dx /= length;
-            dy /= length;
-        }
+        float rx = -fy;
+        float ry =  fx;
 
-        float newPx = px + dx * moveSpeed * dt;
-        float newPy = py + dy * moveSpeed * dt;
+        float vx = (fx * forward + rx * strafe) * moveSpeed;
+        float vy = (fy * forward + ry * strafe) * moveSpeed;
+
+        float newPx = px + vx * dt;
+        float newPy = py + vy * dt;
 
         if(!collides(newPx, py)){
             px = newPx;
@@ -117,6 +167,7 @@ int main(){
         if(!collides(px, newPy)){
             py = newPy;
         }
+
 
         BeginDrawing();
         ClearBackground(RAYWHITE);
@@ -144,6 +195,23 @@ int main(){
 
         Vector2 playerScreenPos = tileToScreen(px, py);
         DrawCircleV(playerScreenPos, playerRadius * tileSize, GREEN);
+
+        float ex = px + cosf(a) * dirLineLength;
+        float ey = py + sinf(a) * dirLineLength;
+
+        Vector2 endPos = tileToScreen(ex, ey);
+        DrawLineV(playerScreenPos, endPos, DARKGREEN);
+
+        DrawText(TextFormat("angle=%.2f rad (%.0f deg)", a, a * 180.0f / PI), 40, screenHeight - 70, 18, BLACK);
+
+        RayHit hit = castRay(px, py, a);
+        Vector2 raysEnd = tileToScreen(hit.hitX, hit.hitY);
+
+        DrawLineV(playerScreenPos, raysEnd, BLUE);
+        DrawCircleV(raysEnd, 4.0f, BLUE);
+        DrawText(TextFormat("rayDist=%.2f", hit.dist), 40, screenHeight - 100, 18, BLACK);
+
+
 
         int tx = (int)floorf(px);
         int ty = (int)floorf(py);
