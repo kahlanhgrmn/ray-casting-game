@@ -17,6 +17,9 @@ static const float playerRadius = 0.18f;
 static const float rotationSpeed = 2.2f;
 static const float dirLineLength = 0.8f;
 
+static const float fov = 60.0f * (PI / 180.0f); // converting to rad
+static const int numRays = 160;
+
 
 static const float maxRayDist = 24.0f;
 static const float rayStep = 0.02f;
@@ -204,13 +207,24 @@ int main(){
 
         DrawText(TextFormat("angle=%.2f rad (%.0f deg)", a, a * 180.0f / PI), 40, screenHeight - 70, 18, BLACK);
 
-        RayHit hit = castRay(px, py, a);
-        Vector2 raysEnd = tileToScreen(hit.hitX, hit.hitY);
 
-        DrawLineV(playerScreenPos, raysEnd, BLUE);
-        DrawCircleV(raysEnd, 4.0f, BLUE);
-        DrawText(TextFormat("rayDist=%.2f", hit.dist), 40, screenHeight - 100, 18, BLACK);
+        float startingAngle = a - fov * 0.5f;
 
+        for(int i = 0; i < numRays; i++){
+            float t = (float)i / (float)(numRays-1);
+            float rayAngle = startingAngle + t * fov;
+
+            RayHit hit = castRay(px, py, rayAngle);
+            Vector2 endOfRay = tileToScreen(hit.hitX, hit.hitY);
+
+            DrawLineV(playerScreenPos, endOfRay, Color{30, 80, 200, 90});
+        }
+
+        RayHit centerHit = castRay(px, py, a);
+        Vector2 centerEnd = tileToScreen(centerHit.hitX, centerHit.hitY);
+        
+        DrawLineV(playerScreenPos, centerEnd, BLUE);
+        DrawCircleV(centerEnd, 4.0f, BLUE);
 
 
         int tx = (int)floorf(px);
