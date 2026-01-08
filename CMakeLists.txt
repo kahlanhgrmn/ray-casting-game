@@ -17,5 +17,12 @@ FetchContent_MakeAvailable(raylib)
 add_executable(MazeExplorer main.cpp)
 target_link_libraries(MazeExplorer PRIVATE raylib)
 
+add_custom_command(TARGET MazeExplorer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/assets
+            $<TARGET_FILE_DIR:MazeExplorer>/assets
+)
+
+
 # On some platforms you may need:
 # target_link_libraries(MazeExplorer PRIVATE raylib m pthread dl rt X11)
