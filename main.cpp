@@ -4,6 +4,9 @@
 static const int screenWidth = 900;
 static const int screenHeight = 700;
 
+static const int internalW = 400;
+static const int internalH = (internalW * screenHeight) / screenWidth;
+
 static const int mapWidth = 16;
 static const int mapHeight = 16;
 
@@ -13,14 +16,13 @@ static const float playerRadius = 0.18f;
 static const float rotationSpeed = 2.2f;
 static const float dirLineLength = 0.8f;
 
-static const float fov = 60.0f * (PI / 180.0f); // converting to rad
-static const int numRays = 160;
+static const float fov = 66.0f * (PI / 180.0f); // converting to rad
+static const int numRays = internalW;
 
 static const float maxRayDist = 24.0f;
 static const float rayStep = 0.02f;
 
-static const float projectPlaneDist = (screenWidth / 2.0f) / tanf(fov/ 2.0f);
-static const int viewH = screenHeight;
+static const float projectPlaneDist = (internalW / 2.0f) / tanf(fov/ 2.0f);
 
 static const int miniTile = 12;
 static const int miniPad  = 12;
@@ -172,24 +174,24 @@ static RayHit castRay(float px, float py, float a){ // casting DDA rays
 
     float distance;
 
-    if(side == 0){
-        distance = (mapX - px + (1-stepX) / 2.0f)/ rayDirectionX;
-    }
-    else{
-        distance = (mapY - py + (1-stepY) / 2.0f) / rayDirectionY;
-    }
+        if(side == 0){
+            distance = sideDistanceX - deltaDistanceX;
+        }
+        else{
+            distance = sideDistanceY - deltaDistanceY;
+        }
 
-    if(distance < 0.0001f){
-        distance = 0.0001f;
-    }
-    if(distance > maxRayDist){
-        distance = maxRayDist;
-    }
+        if(distance < 0.0001f){
+            distance = 0.0001f;
+        }
+        if(distance > maxRayDist){
+            distance = maxRayDist;
+        }
 
-    float hitX = px + rayDirectionX * distance;
-    float hitY = py + rayDirectionY *distance;
+        float hitX = px + rayDirectionX * distance;
+        float hitY = py + rayDirectionY * distance;
 
-    return RayHit{distance, hitX, hitY, cell, side};
+        return RayHit{distance, hitX, hitY, cell, side};
 
 }
 
@@ -205,13 +207,19 @@ static Vector2 tileToMini(float tx, float ty) {
 int main(){
     InitWindow(screenWidth, screenHeight, "Maze Explorer");
 
+    RenderTexture2D viewRT = LoadRenderTexture(internalW, internalH);
+    SetTextureFilter(viewRT.texture, TEXTURE_FILTER_POINT);
+
     Texture2D wallTexture = LoadTexture("assets/walls/wall0.png");
     if(wallTexture.id == 0){
         TraceLog(LOG_ERROR, "Failed to load wall texture.");
     }
 
-    SetTextureFilter(wallTexture, TEXTURE_FILTER_BILINEAR);
-    SetTextureWrap(wallTexture, TEXTURE_WRAP_CLAMP);
+    TraceLog(LOG_INFO, "Texture loaded: width=%d, height=%d", wallTexture.width, wallTexture.height);
+
+    SetTextureFilter(wallTexture, TEXTURE_FILTER_POINT);
+    SetTextureWrap(wallTexture, TEXTURE_WRAP_REPEAT);
+
 
     SetTargetFPS(60);
 
@@ -271,20 +279,21 @@ int main(){
             py = newPy;
         }
 
+    
+        float startingAngle = a - fov * 0.5f;
 
-        BeginDrawing();
+
+        BeginTextureMode(viewRT);
         ClearBackground(RAYWHITE);
 
-        int viewTop = 0;
-        int horizon = viewTop + viewH / 2;
+        int horizon = internalH / 2;
 
         Color roofColour = Color{90, 90, 120, 255};
         Color floorColour   = Color{60, 60, 60, 255};
 
-        DrawRectangle(0, viewTop, screenWidth, viewH/2, roofColour); // roof
-        DrawRectangle(0, horizon, screenWidth, viewH/2, floorColour); // floor
+        DrawRectangle(0, 0, internalW, horizon, roofColour); // roof
+        DrawRectangle(0, horizon, internalW, internalH - horizon, floorColour); // floor
 
-        float startingAngle = a - fov * 0.5f;
 
         for(int i = 0; i < numRays; i++){
             float t = (float)i / (float)(numRays -1);
@@ -292,83 +301,75 @@ int main(){
 
             RayHit hit = castRay(px, py, rayAngle);
 
-            float perpDistance = hit.dist;
+            if(hit.cell == 0){
+                continue;
+            }
+
+            // calculate perpendicular distance first
+            float perpDistance = hit.dist * cosf(rayAngle - a);
             if(perpDistance < 0.0001f){
                 perpDistance = 0.0001f;
-
             }
 
-            float wallHeight = (1.0f / perpDistance)* projectPlaneDist;
-            
+            // then calc wall dimentions after
+            float wallHeight = (1.0f / perpDistance) * projectPlaneDist;
 
-            float colWf = (float)screenWidth / (float)numRays;
-            int sliceX = (int)floorf(i * colWf);
-            int nextX  = (int)floorf((i + 1) * colWf);
-            int sliceW = nextX - sliceX;
-            if(sliceW < 1){
-                sliceW = 1;
-            }
-            int sliceY = horizon - (int)(wallHeight/2);
+            int sliceX = i;
+            int sliceW = 1;
+            int sliceY = horizon - (int)(wallHeight * 0.5f);
             int sliceH = (int)wallHeight;
 
+            if(sliceY < 0) {sliceH += sliceY; sliceY = 0;}
+            if(sliceY + sliceH > internalH) {sliceH = internalH - sliceY;}
+
+            if(sliceH <= 0){
+                continue;
+            }
 
             float shade = 1.0f - perpDistance / maxRayDist;
-            if(shade < 0.0f){
-                shade = 0.0f;
+            if(shade < 0.0f) shade = 0.0f;
+            if(hit.side == 1) shade *= 0.65f;
+
+            float wallX;
+            if(hit.side == 0){
+                wallX = hit.hitY;
+            } 
+            else{
+                wallX = hit.hitX;  
             }
+            wallX -= floorf(wallX);
 
-            if(hit.side == 1){
-                shade *= 0.65f;
-            }
+            int textureX = (int)(wallX * (float)wallTexture.width);
+            if(textureX < 0) textureX = 0;
+            if(textureX >= wallTexture.width) textureX = wallTexture.width - 1;
 
-            unsigned char c = (unsigned char)(80 + shade * 175);
+            if(hit.side == 0 && cosf(rayAngle) > 0) textureX = wallTexture.width - textureX - 1;
+            if(hit.side == 1 && sinf(rayAngle) < 0) textureX = wallTexture.width - textureX - 1;
 
-            if(sliceY < 0) {sliceH += sliceY; sliceY = 0;}
-            if(sliceY + sliceH > screenHeight) {sliceH = screenHeight - sliceY;}
+            Rectangle src = {(float)textureX, 0.0f, 1.0f, (float)wallTexture.height};
+            Rectangle dst = {(float)sliceX, (float)sliceY, (float)sliceW, (float)sliceH};
 
-            if(sliceH > 0){
-                if(hit.cell == 0){
-                    continue;
-                }
+            unsigned char tc = (unsigned char)(80 + shade * 175);
+            Color tint = { tc, tc, tc, 255 };
 
-                float rayDirectionX = cosf(rayAngle);
-                float rayDirectionY = sinf(rayAngle);
-
-                float u;
-
-                if(hit.side == 0){
-                    u = hit.hitY - floorf(hit.hitY);
-                }
-                else{
-                    u = hit.hitX - floorf(hit.hitX);
-                }
-
-                if(hit.side == 0 && (rayDirectionX > 0)){
-                    u = 1.0f - u;
-                }
-                if( hit.side == 1 && (rayDirectionY < 0)){
-                    u = 1.0f - u;
-                }
-
-                int textureX = (int)( u * (wallTexture.width - 1));
-                // clamping textures for safety
-                if(textureX < 0){
-                    textureX = 0;
-                }
-                if(textureX >= wallTexture.width){
-                    textureX = wallTexture.width - 1;
-                }
-
-                Rectangle src = { (float)textureX, 0.0f, 1.0f, (float)wallTexture.height };
-                Rectangle dst = { (float)sliceX, (float)sliceY, (float)sliceW, (float)sliceH };
-
-                unsigned char tc = (unsigned char)(80 + shade * 175);
-                Color tint = { tc, tc, tc, 255 };
-
-                DrawTexturePro(wallTexture, src, dst, Vector2{0,0}, 0.0f, tint);
-
-            }
+            DrawTexturePro(wallTexture, src, dst, Vector2{0,0}, 0.0f, tint);
         }
+        EndTextureMode();
+
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+
+        float scale = fminf((float)screenWidth / internalW, (float)screenHeight / internalH);
+        float dstW = internalW * scale;
+        float dstH = internalH * scale;
+        float dstX = (screenWidth  - dstW) * 0.5f;
+        float dstY = (screenHeight - dstH) * 0.5f;
+
+        Rectangle src = { 0, 0, (float)internalW, -(float)internalH };
+        Rectangle dst = { dstX, dstY, dstW, dstH };
+
+        DrawTexturePro(viewRT.texture, src, dst, Vector2{0,0}, 0.0f, WHITE);
+
 
         DrawRectangle(miniPad - 6, miniPad - 6, miniW + 12, miniH + 12, Color{0,0,0,120});
 
@@ -411,6 +412,8 @@ int main(){
     }
 
     UnloadTexture(wallTexture);
+    UnloadRenderTexture(viewRT);
+
 
     CloseWindow();
     return 0;
