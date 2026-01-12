@@ -14,7 +14,14 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(raylib)
 
-add_executable(MazeExplorer main.cpp)
+# Add all source files
+add_executable(MazeExplorer 
+    main.cpp
+    map.cpp
+    player.cpp
+    raycaster.cpp
+)
+
 target_link_libraries(MazeExplorer PRIVATE raylib)
 
 add_custom_command(TARGET MazeExplorer POST_BUILD
@@ -22,7 +29,6 @@ add_custom_command(TARGET MazeExplorer POST_BUILD
             ${CMAKE_SOURCE_DIR}/assets
             $<TARGET_FILE_DIR:MazeExplorer>/assets
 )
-
 
 # On some platforms you may need:
 # target_link_libraries(MazeExplorer PRIVATE raylib m pthread dl rt X11)

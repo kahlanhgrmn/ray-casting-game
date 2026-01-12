@@ -1,4 +1,4 @@
-.PHONY: build run clean
+.PHONY: build run clean makerun
 
 build:
 	cmake -S . -B build
@@ -6,6 +6,8 @@ build:
 
 run: build
 	./build/MazeExplorer
+
+makerun: build run
 
 clean:
 	rm -rf build
