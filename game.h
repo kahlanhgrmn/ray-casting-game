@@ -24,6 +24,14 @@ static const int tileElevator = 2;
 
 static const float footstepInterval = 0.4f;
 
+struct Sprite {
+    float x;
+    float y;
+    int textureIdx;
+    bool collected;
+    int floor;
+    int inventoryItemIndex;
+};
 
 struct RayHit {
     float dist;

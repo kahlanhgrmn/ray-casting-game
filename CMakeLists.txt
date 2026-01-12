@@ -14,12 +14,14 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(raylib)
 
-# Add all source files
+# source files
 add_executable(MazeExplorer 
     main.cpp
     map.cpp
     player.cpp
     raycaster.cpp
+    sprite.cpp
+    inventory.cpp
 )
 
 target_link_libraries(MazeExplorer PRIVATE raylib)

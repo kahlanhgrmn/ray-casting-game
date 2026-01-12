@@ -2,6 +2,8 @@
 #include "map.h"
 #include "player.h"
 #include "raycaster.h"
+#include "sprite.h"
+#include "inventory.h"
 
 
 static Vector2 tileToMini(float tx, float ty){
@@ -22,6 +24,7 @@ int main(){
     RenderTexture2D viewRT = LoadRenderTexture(internalW, internalH);
     SetTextureFilter(viewRT.texture, TEXTURE_FILTER_POINT);
 
+    // WALLS
     Texture2D levelTextures[3];
     levelTextures[0] = LoadTexture("assets/walls/wall0.png");
     levelTextures[1] = LoadTexture("assets/walls/wall1.png");
@@ -32,10 +35,38 @@ int main(){
         SetTextureWrap(levelTextures[i], TEXTURE_WRAP_REPEAT);
     }
 
+    // SPRITES
+    Texture2D spriteTextures[2];
+    spriteTextures[0] = LoadTexture("assets/sprites/crate0.png");
+    spriteTextures[1] = LoadTexture("assets/sprites/barrel0.png");
+
+    TraceLog(LOG_INFO, "Crate loaded: %dx%d", spriteTextures[0].width, spriteTextures[0].height);
+    TraceLog(LOG_INFO, "Barrel loaded: %dx%d", spriteTextures[1].width, spriteTextures[1].height);
+
+
+    for(int i = 0; i < 2; i++){
+        SetTextureFilter(spriteTextures[i], TEXTURE_FILTER_POINT);
+    }
+
+    SpriteManager spriteManager(spriteTextures, 2);
+    float* zBuffer = new float[internalW];
+
+    // INVENTORY
+    Inventory inventory;
+
+    inventory.addItem("Worn Cable Spool", "Frayed and stained with age", 1);
+    inventory.addItem("Control Panel", "Buttons stick when pressed", 0);
+    inventory.addItem("Circuit Board", "Burnt smell lingers", 0);
+
+    spriteManager.addSprite(8.5f, 8.5f, 1, 1, 0);
+    spriteManager.addSprite(10.5f, 8.5f, 0, 1, 1);
+    spriteManager.addSprite(6.5f, 8.5f, 0, 1, 2);
+
+    // SOUNDS
     Sound footstepSound = LoadSound("assets/sounds/421152__giocosound__footstep_wood_toe_2.wav");
     Sound elevatorSound = LoadSound("assets/sounds/old_elevator_door.mp3");
 
-    SetSoundVolume(footstepSound, 0.3f);
+    SetSoundVolume(footstepSound, 0.1f);
     SetSoundVolume(elevatorSound, 1.0f);
 
     Music ambientFloor0 = LoadMusicStream("assets/sounds/254783__jonathantremblay__buzzing-light.wav");
@@ -89,11 +120,27 @@ int main(){
         }
 
         else{
-            if(IsKeyPressed(KEY_SPACE)){
+            int nearbySprite = spriteManager.checkNearbySprite(player.x, player.y, 0.8f, currentFloor);
+
+            if(IsKeyPressed(KEY_SPACE)){ // moving floors
                 setFloor((currentFloor+1) % 2);
             }
 
-            if(IsKeyPressed(KEY_E)){
+            if(IsKeyPressed(KEY_TAB)){ // inventory
+                inventory.toggleInventory();
+            }
+
+            if(IsKeyPressed(KEY_F)){ // interact/ pick up
+                 if(nearbySprite >= 0){
+                    Sprite& sprite = spriteManager.sprites[nearbySprite];
+                    if(sprite.inventoryItemIndex >= 0 && !sprite.collected){
+                        sprite.collected = true;
+                        inventory.collectItem(sprite.inventoryItemIndex);
+                    }
+                }
+            }
+
+            if(IsKeyPressed(KEY_E)){ // use elevator
                 if(player.isOnElevator()){
                     inElevator = true;
                     elevatorTimer = 0.0f;
@@ -105,6 +152,7 @@ int main(){
                 }
             }
             player.update(dt);
+
 
             float distMoved = sqrtf(
                 (player.x - lastPlayerPos.x) * (player.x - lastPlayerPos.x) + (player.y - lastPlayerPos.y) * (player.y - lastPlayerPos.y)
@@ -168,6 +216,9 @@ int main(){
             DrawRectangle(0, 0, internalW, horizon, roofColour); // roof
             DrawRectangle(0, horizon, internalW, internalH - horizon, floorColour); // floor
 
+            for(int i = 0; i < numRays; i++){
+                zBuffer[i] = maxRayDist;
+            }
 
             for(int i = 0; i < numRays; i++){
                 float t = (float)i / (float)(numRays -1);
@@ -184,6 +235,8 @@ int main(){
                 if(perpDistance < 0.0001f){
                     perpDistance = 0.0001f;
                 }
+
+                zBuffer[i] = perpDistance;
 
                 // then calc wall dimentions after
                 float wallHeight = (1.0f / perpDistance) * projectPlaneDist;
@@ -228,6 +281,9 @@ int main(){
 
                 DrawTexturePro(currentTexture, src, dst, Vector2{0,0}, 0.0f, tint);
             }
+
+            spriteManager.renderSprites(player.x, player.y, player.angle, viewRT, horizon, zBuffer, currentFloor);
+
             EndTextureMode();
 
             // MINIMAP
@@ -281,6 +337,11 @@ int main(){
             DrawCircleV(pMini, player.radius * miniTile, GREEN);
             DrawLineV(pMini, tileToMini(player.x + cosf(player.angle) * 0.8f, player.y + sinf(player.angle) * 0.8f), DARKGREEN);
 
+            int nearbySprite = spriteManager.checkNearbySprite(player.x, player.y, 0.8f, currentFloor);
+            if(nearbySprite >= 0 && !spriteManager.sprites[nearbySprite].collected) {
+                DrawText("Press F to collect", screenWidth/2 - 100, screenHeight - 150, 20, YELLOW);
+            }
+
             if(player.isOnElevator()){
                 DrawText("Press E to use elevator", screenWidth/2 - 100, screenHeight - 100, 20, YELLOW);
             }
@@ -290,9 +351,20 @@ int main(){
             );
 
             DrawText(TextFormat("angle=%.2f rad (%.0f deg)", player.angle, player.angle * 180.0f / PI), 40, screenHeight - 70, 18, BLACK);
+
+            if(!inElevator){
+                inventory.renderHUD(screenWidth, screenHeight);
+            }
+
+            inventory.renderFullInventory(screenWidth, screenHeight, spriteTextures);
+
+
+
             EndDrawing();
         }
     }
+
+    // CLEANUP
 
     UnloadSound(footstepSound);
     if(elevatorSound.frameCount > 0){UnloadSound(elevatorSound);}
@@ -304,6 +376,7 @@ int main(){
     }
     UnloadRenderTexture(viewRT);
     cleanupMaps();
+    delete[] zBuffer;
 
     CloseAudioDevice();
     CloseWindow();
