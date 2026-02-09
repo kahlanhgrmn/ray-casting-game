@@ -14,4 +14,5 @@ class SpriteManager{
         void removeSprite(int index);
         int checkNearbySprite(float playerX, float playerY, float radius, int currentFloor);
         void renderSprites(float playerX, float playerY, float playerAngle, RenderTexture2D& renderTarget, int horizon, float* zBuffer, int currFloor);
+        int checkNearbyNote(float playerX, float playerY, float radius, int currentFloor);
 };

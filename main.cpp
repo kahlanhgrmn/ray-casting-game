@@ -5,6 +5,37 @@
 #include "sprite.h"
 #include "inventory.h"
 
+// for note text
+static void DrawMultilineText(const char* text, int x, int y, int fontSize, int lineGap, Color col){
+    int start = 0;
+    int len = 0;
+
+    while(text[start] != '\0'){
+        len = 0;
+
+        while(text[start + len] != '\0' && text[start + len] != '\n'){
+            len++;
+        }
+
+        char line[512];
+        int copyLen = (len < 511) ? len : 511;
+
+        for(int i = 0; i < copyLen; i++){
+            line[i] = text[start + i];
+        }
+        line[copyLen] = '\0';
+
+        DrawText(line, x, y, fontSize, col);
+
+        y += fontSize + lineGap;
+
+        start += len;
+        if(text[start] == '\n'){
+            start++;
+        }
+    }
+}
+
 
 static Vector2 tileToMini(float tx, float ty){
     return Vector2{
@@ -15,6 +46,37 @@ static Vector2 tileToMini(float tx, float ty){
 
 
 int main(){
+    // COUNTERS AND FLOORS
+    const int finalFloor = 4; // basement
+    float acceptanceScore = 0.0f;
+    float avoidanceScore = 0.0f;
+
+    float timeOnFloor = 0.0f;
+    int lastFloor = 0;
+
+    // ENDINGS
+    bool repressionMode = false;  // once repression ending is decided, elevator return to lobby
+    bool acceptanceEnding = false; // acceptance cutscene mode
+    float endingTimer = 0.0f;
+
+    // HUD
+    const char* hudMessage = nullptr;
+    float hudMessageTimer = 0.0f;
+
+    // NOTES
+    bool noteOpen = false;
+    int openNoteId = -1;
+    int openNoteSpriteIdx = -1;
+
+    std::vector<const char*> notes;
+    notes.push_back(""); // note so that notes[1] will be valid
+    notes.push_back("The light hum is getting worse.\nI can't tell if it's the fixture or me.\n\nIf you hear the elevator move by itself:\nDO NOT LOOK UP.");
+    notes.push_back("MAINTENANCE LOG:\nPanel keeps resetting to FLOOR 0.\nWe \"fix\" it, and it returns.\n\nGuests say the lobby feels like home.");
+    notes.push_back("They keep telling me to wake up.\nBut every time I try,\nthe hotel pulls me back down.");
+
+
+
+
     InitWindow(screenWidth, screenHeight, "Maze Explorer");
     InitAudioDevice();
     if(!IsAudioDeviceReady()) {
@@ -51,16 +113,24 @@ int main(){
     SpriteManager spriteManager(spriteTextures, 2);
     float* zBuffer = new float[internalW];
 
-    // INVENTORY
+    // INVENTORY AND COLLECTABLES
     Inventory inventory;
 
     inventory.addItem("Worn Cable Spool", "Frayed and stained with age", 1);
     inventory.addItem("Control Panel", "Buttons stick when pressed", 0);
     inventory.addItem("Circuit Board", "Burnt smell lingers", 0);
 
+
     spriteManager.addSprite(8.5f, 8.5f, 1, 1, 0);
-    spriteManager.addSprite(10.5f, 8.5f, 0, 1, 1);
-    spriteManager.addSprite(6.5f, 8.5f, 0, 1, 2);
+    spriteManager.addSprite(10.5f, 6.5f, 0, 2, 1);
+    spriteManager.addSprite(12.5f, 12.5f, 0, 3, 2);
+
+
+    // NOTE SPRITES
+    spriteManager.addSprite(3.5f, 3.5f, 0, 1, -2);
+    spriteManager.addSprite(12.5f, 3.5f, 0, 2, -3);
+    spriteManager.addSprite(8.5f, 12.5f, 0, 3, -4);
+
 
     // SOUNDS
     Sound footstepSound = LoadSound("assets/sounds/421152__giocosound__footstep_wood_toe_2.wav");
@@ -94,6 +164,19 @@ int main(){
     while(!WindowShouldClose()){
         float dt = GetFrameTime();
 
+        if(hudMessageTimer > 0.0f){
+            hudMessageTimer -= dt;
+        }
+        else{
+            hudMessage = nullptr;
+        }
+
+        timeOnFloor += dt;
+        // acceptence ending - lingering and exploring will give more points to this ending
+        if(!player.isOnElevator()){
+            acceptanceScore += dt * 0.05f;
+        }
+
         UpdateMusicStream(currentAmbient);
 
         if(inElevator){
@@ -104,54 +187,153 @@ int main(){
                 elevatorTimer = 0.0f;
                     
                 StopMusicStream(currentAmbient);
-                if(targetFloor == 0){
-                    currentAmbient = ambientFloor0;
+                if(targetFloor == finalFloor){
+                    currentAmbient = ambientFloor1;
                 } 
                 else{
-                    currentAmbient = ambientFloor1;
+                    currentAmbient = ambientFloor0;
                 }
 
                 PlayMusicStream(currentAmbient);
                     
                 setFloor(targetFloor);
+
+                // after arriving
+                if(acceptanceEnding){
+                    // start ending/ fade out timer
+                    endingTimer = 0.0f;
+                }
+
+
                 player.x = currentMap->elevatorPosition.x;
                 player.y = currentMap->elevatorPosition.y;
             }
         }
 
         else{
-            int nearbySprite = spriteManager.checkNearbySprite(player.x, player.y, 0.8f, currentFloor);
+            int nearbyItemSprite = spriteManager.checkNearbySprite(player.x, player.y, 0.8f, currentFloor);
+            int nearbyNoteSprite = spriteManager.checkNearbyNote(player.x, player.y, 0.8f, currentFloor);
 
-            if(IsKeyPressed(KEY_SPACE)){ // moving floors
-                setFloor((currentFloor+1) % 2);
-            }
+
 
             if(IsKeyPressed(KEY_TAB)){ // inventory
                 inventory.toggleInventory();
             }
 
-            if(IsKeyPressed(KEY_F)){ // interact/ pick up
-                 if(nearbySprite >= 0){
-                    Sprite& sprite = spriteManager.sprites[nearbySprite];
-                    if(sprite.inventoryItemIndex >= 0 && !sprite.collected){
-                        sprite.collected = true;
-                        inventory.collectItem(sprite.inventoryItemIndex);
+            if(noteOpen){ // interaction with sprites
+                if(IsKeyPressed(KEY_F)){
+                    noteOpen = false;
+                    openNoteId = -1;
+                    openNoteSpriteIdx = -1;
+                }
+                // skip movement and interaction while reading a note
+            }
+            else{
+                if(IsKeyPressed(KEY_F)){
+                    // notes are first priority then pickup items
+                    if(nearbyNoteSprite >= 0){
+                        Sprite &s = spriteManager.sprites[nearbyNoteSprite];
+                        int noteId = -s.inventoryItemIndex - 1;
+
+                        noteOpen = true;
+                        openNoteId = noteId;
+                        openNoteSpriteIdx = nearbyNoteSprite;
+
+                        // adds to acceptance ending score when reading notes for first time
+                        if(!s.collected){
+                            s.collected = true;
+                            acceptanceScore += 1.0f;
+                        }
+                    }
+
+                    else if(nearbyItemSprite >= 0){
+                        Sprite& sprite = spriteManager.sprites[nearbyItemSprite];
+
+                        if(sprite.inventoryItemIndex >= 0 && !sprite.collected){
+                            sprite.collected = true;
+                            inventory.collectItem(sprite.inventoryItemIndex);
+                        }
                     }
                 }
+
             }
 
-            if(IsKeyPressed(KEY_E)){ // use elevator
+            if(IsKeyPressed(KEY_E)){ // interact elevator
                 if(player.isOnElevator()){
                     inElevator = true;
                     elevatorTimer = 0.0f;
-                    targetFloor = (currentFloor + 1) % 2;
+
+                    // if repression/ avoidance ending, elevator always leads to the lobby
+                    if(repressionMode){
+                        targetFloor = 0;
+                    }
+                    else{
+                        // game chooses your ending in the basement
+                        if(currentFloor >= finalFloor){
+                            // avoidance vs acceptance decision:
+                            // rushing and not exploring leads to the avoidance ending
+                            bool chooseRepression = (avoidanceScore > acceptanceScore + 1.5f);
+
+                            if(chooseRepression){
+                                repressionMode = true;
+                                targetFloor = 0;
+                            } 
+                            else{
+                                acceptanceEnding = true;
+                                targetFloor = 0;
+                            }
+                        }
+
+                        else{
+                            int nextFloor = currentFloor + 1;
+
+                            // restrict access to basement (floor 4)
+                            if(currentFloor == finalFloor - 1){ // on floor 3 going to 4
+                                if(inventory.getCollectedCount() < inventory.totalItems){
+                                    // deny elevator use
+                                    inElevator = false;
+                                    elevatorTimer = 0.0f;
+
+                                    hudMessage = TextFormat("Elevator panel: Missing components (%d/%d).", inventory.getCollectedCount(), inventory.totalItems);
+                                    hudMessageTimer = 2.5f;
+
+                                    // play "locked" sound later
+                                    continue;
+                                }
+                            }
+
+                            targetFloor = nextFloor;
+                        }
+                    }
+
+                    // score based on how fast you left
+                    if(timeOnFloor < 25.0f){
+                        avoidanceScore += 1.0f;
+                    }
+                    else{
+                        acceptanceScore += 0.5f;
+                    }
+
+                    timeOnFloor = 0.0f; // reset for next floor
 
                     if(elevatorSound.frameCount > 0){
                         PlaySound(elevatorSound);
                     }
                 }
             }
-            player.update(dt);
+
+            if(!noteOpen){
+                player.update(dt);
+            }
+
+            if(acceptanceEnding && !inElevator){
+                endingTimer += dt;
+
+                if(endingTimer > 2.5f){
+                    // end the game cleanly for now
+                    break;
+                }
+            }
 
 
             float distMoved = sqrtf(
@@ -176,6 +358,9 @@ int main(){
         float startingAngle = player.angle - fov * 0.5f;
 
         Texture2D currentTexture = levelTextures[currentFloor % 3];
+        if(currentTexture.id == 0 || currentTexture.width == 0){
+            currentTexture = levelTextures[0]; // if textures aren't working
+        }
 
 
         if(inElevator){
@@ -196,7 +381,7 @@ int main(){
                 DrawRectangle(screenWidth - openWidth, 0, openWidth, screenHeight, Color{40, 40, 40, 255});
             }
             
-            const char* floorText = TextFormat("Going to Floor %d...", targetFloor + 1);
+            const char* floorText = TextFormat("Going to Floor %d...", targetFloor);
             int textWidth = MeasureText(floorText, 40);
 
             DrawText(floorText, screenWidth/2 - textWidth/2, screenHeight/2 - 20, 40, WHITE);
@@ -337,23 +522,82 @@ int main(){
             DrawCircleV(pMini, player.radius * miniTile, GREEN);
             DrawLineV(pMini, tileToMini(player.x + cosf(player.angle) * 0.8f, player.y + sinf(player.angle) * 0.8f), DARKGREEN);
 
-            int nearbySprite = spriteManager.checkNearbySprite(player.x, player.y, 0.8f, currentFloor);
-            if(nearbySprite >= 0 && !spriteManager.sprites[nearbySprite].collected) {
-                DrawText("Press F to collect", screenWidth/2 - 100, screenHeight - 150, 20, YELLOW);
+            int nearbyItem = spriteManager.checkNearbySprite(player.x, player.y, 0.8f, currentFloor);
+            int nearbyNote = spriteManager.checkNearbyNote(player.x, player.y, 0.8f, currentFloor);
+
+            if(!noteOpen){
+
+                float dxMove = player.x - lastPlayerPos.x;
+                float dyMove = player.y - lastPlayerPos.y;
+                float distMoved = sqrtf(dxMove*dxMove + dyMove*dyMove);
+
+
+                if(distMoved > 0.01f){
+                    footstepTimer += dt;
+                    if(footstepTimer >= footstepInterval){
+                        PlaySound(footstepSound);
+                        footstepTimer = 0.0f;
+                    }
+                } 
+                else {footstepTimer = 0.0f;}
+
+                lastPlayerPos = {player.x, player.y};
+
+
+                if(nearbyNote >= 0){
+                    DrawText("Press F to read", screenWidth/2 - 90, screenHeight - 150, 20, YELLOW);
+                }
+                else if(nearbyItem >= 0){
+                    DrawText("Press F to collect", screenWidth/2 - 100, screenHeight - 150, 20, YELLOW);
+                }
+            }
+            else{
+                DrawText("Press F to put down", screenWidth/2 - 130, screenHeight - 150, 20, GRAY);
             }
 
             if(player.isOnElevator()){
                 DrawText("Press E to use elevator", screenWidth/2 - 100, screenHeight - 100, 20, YELLOW);
             }
 
-            DrawText(TextFormat("Floor: %d | Press E to interact | Press SPACE to switch floors", 
-                currentFloor + 1), 10, 10, 20, WHITE
-            );
+            DrawText(TextFormat("Floor: %d | Press E to interact", currentFloor), 10, 10, 20, WHITE);
 
             DrawText(TextFormat("angle=%.2f rad (%.0f deg)", player.angle, player.angle * 180.0f / PI), 40, screenHeight - 70, 18, BLACK);
 
             if(!inElevator){
                 inventory.renderHUD(screenWidth, screenHeight);
+
+
+                // inventory / hud
+                if(hudMessage){
+                    DrawText(hudMessage, screenWidth/2 - MeasureText(hudMessage, 22)/2, screenHeight - 60, 22, ORANGE);
+                }
+
+                // repression ending text
+                if(currentFloor == 0 && repressionMode){
+                    DrawText("WELCOME HOME.", screenWidth/2 - 120, 60, 40, WHITE);
+                    DrawText("Your room is ready.", screenWidth/2 - 110, 105, 20, GRAY);
+                }
+
+                // when reading note
+                if(noteOpen && openNoteId > 0 && openNoteId < (int)notes.size()){
+                DrawRectangle(0, 0, screenWidth, screenHeight, Color{0,0,0,160});
+
+                int boxW = (int)(screenWidth * 0.75f);
+                int boxH = (int)(screenHeight * 0.65f);
+                int boxX = (screenWidth - boxW)/2;
+                int boxY = (screenHeight - boxH)/2;
+
+                DrawRectangle(boxX, boxY, boxW, boxH, Color{20,20,20,240});
+                DrawRectangleLines(boxX, boxY, boxW, boxH, Color{200,200,200,120});
+
+                DrawText("NOTE", boxX + 20, boxY + 15, 30, RAYWHITE);
+
+                DrawMultilineText(notes[openNoteId], boxX + 20, boxY + 60, 22, 8, RAYWHITE);
+
+                DrawTextEx(GetFontDefault(), "Press F to put it down",
+                    (Vector2){(float)boxX + 20, (float)(boxY + boxH - 40)}, 22.0f, 2.0f, GRAY
+                );
+            }
             }
 
             inventory.renderFullInventory(screenWidth, screenHeight, spriteTextures);
@@ -363,6 +607,11 @@ int main(){
             EndDrawing();
         }
     }
+
+    StopMusicStream(currentAmbient);
+    StopSound(elevatorSound);
+    StopSound(footstepSound);
+
 
     // CLEANUP
 

@@ -1,9 +1,11 @@
 #include "map.h"
+#include "game.h"
+#include <cmath>
 #include <cstdlib>
 
 Map* currentMap = nullptr;
 int currentFloor = 0;
-Map* floors[10]; 
+Map* floors[10] = {nullptr}; 
 
 Map::Map(int w, int h): width(w), height(h), elevatorPosition{0,0}{
     grid = new int*[height];
@@ -67,24 +69,45 @@ void initMaps(){
         }
     }
 
-    // floor 1 (test)
-    floors[1] = new Map(16,16);
-    floors[1] -> elevatorPosition = {7.5f, 7.5f};
+    // other floors
+    for(int f = 1; f <= 4; f++){
+        floors[f] = new Map(16,16);
 
-    for(int y = 0; y < 16; y++){
-        for(int x = 0; x < 16; x++){
+        // Put elevator in different spots
+        if(f == 1) floors[f]->elevatorPosition = {7.5f, 7.5f};
+        if(f == 2) floors[f]->elevatorPosition = {1.5f, 13.5f};
+        if(f == 3) floors[f]->elevatorPosition = {13.5f, 13.5f};
+        if(f == 4) floors[f]->elevatorPosition = {7.5f, 1.5f};
 
-            if(x == 0 || x == 15 || y == 0 || y == 15){
-                floors[1] -> grid[y][x] = 1;
-            }
-            else if(x == 7 && y ==7){
-                floors[1] -> grid[y][x] = 2;
-            }
-            else{
-                floors[1] -> grid[y][x] = 0;
+        for(int y = 0; y < 16; y++){
+            for(int x = 0; x < 16; x++){
+                // border walls
+                if(x == 0 || x == 15 || y == 0 || y == 15) floors[f]->grid[y][x] = tileWall;
+                else floors[f]->grid[y][x] = tileFloor;
             }
         }
+
+        // tile for elevator
+        int ex = (int)floorf(floors[f]->elevatorPosition.x);
+        int ey = (int)floorf(floors[f]->elevatorPosition.y);
+        floors[f]->grid[ey][ex] = tileElevator;
+
+        
+        if(f >= 2){
+            for(int x = 2; x <= 13; x++){
+                floors[f]->grid[8][x] = tileWall;
+            }
+            floors[f]->grid[8][7] = tileFloor;
+        }
+        
+        if(f >= 3){
+            for(int y = 2; y <= 13; y++){
+                floors[f]->grid[y][6] = tileWall;
+            }
+            floors[f]->grid[10][6] = tileFloor;
+        }
     }
+
 
     setFloor(0); // starting on floor 0/ ground floor
 }

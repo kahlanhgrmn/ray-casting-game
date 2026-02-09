@@ -49,7 +49,11 @@ void SpriteManager::renderSprites(float playerX, float playerY, float playerAngl
     
     for(int i = 0; i < sprites.size(); i++){
 
-        if(sprites[i].collected || sprites[i].floor != currFloor){
+        if(sprites[i].floor != currFloor){
+            continue;
+        }
+
+        if(sprites[i].inventoryItemIndex >= 0 && sprites[i].collected){
             continue;
         }
 
@@ -128,4 +132,24 @@ void SpriteManager::renderSprites(float playerX, float playerY, float playerAngl
 
         EndTextureMode();
     }
+}
+
+int SpriteManager::checkNearbyNote(float playerX, float playerY, float radius, int currentFloor){
+    for(int i = 0; i < sprites.size(); i++){
+        if(sprites[i].floor != currentFloor){
+            continue;
+        }
+
+        if(sprites[i].inventoryItemIndex > -2){ // -2 onwards used for notes
+            continue;
+        }
+
+        float dx = sprites[i].x - playerX;
+        float dy = sprites[i].y - playerY;
+        float distance = sqrtf((dx * dx) + (dy * dy));
+
+        if(distance < radius) {return i;}
+    }
+
+    return -1;
 }
